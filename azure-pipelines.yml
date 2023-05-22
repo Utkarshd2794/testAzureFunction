@@ -1,29 +1,80 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
-- main
+  - main
+  - feature/*
+  - develop
+  - integration
+  - staging
+  - master
+  - hotfix/*
+
+pr:
+  branches:
+    include:
+      - main
+      - master
+      - staging
+      - integration
+      - develop
 
 pool:
-  vmImage: windows-2022
+  vmImage: 'windows-2022'
+
+variables:
+  MAVEN_CACHE_FOLDER: $(Pipeline.Workspace)/.m2/repository
+  MAVEN_OPTS: '-Dmaven.repo.local=$(MAVEN_CACHE_FOLDER) -Xmx3072m'
 
 steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-- task: Maven@4
-  inputs:
-    mavenPomFile: 'pom.xml'
-    publishJUnitResults: true
-    testResultsFiles: '**/surefire-reports/TEST-*.xml'
-    javaHomeOption: 'JDKVersion'
-    mavenVersionOption: 'Default'
-    mavenAuthenticateFeed: false
-    effectivePomSkip: false
-    sonarQubeRunAnalysis: false
+  - script: npm i -g azure-functions-core-tools@3 --unsafe-perm true
+  - task: MavenAuthenticate@0
+    condition: not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))
+    displayName: 'Maven Authenticate'
+    inputs:
+      artifactsFeeds: Pim-Artifacts-Feed
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+  - task: Cache@2
+    condition: not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))
+    inputs:
+      key: 'maven | "$(Agent.OS)" | **/pom.xml'
+      restoreKeys: |
+        maven | "$(Agent.OS)"
+        maven
+      path: $(MAVEN_CACHE_FOLDER)
+    displayName: Cache Maven local repo
+
+  - task: Maven@3
+    condition: not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))
+    inputs:
+      mavenPomFile: 'pom.xml'
+      mavenOptions: '$(MAVEN_OPTS)'
+      javaHomeOption: 'JDKVersion'
+      jdkVersionOption: '1.8'
+      jdkArchitectureOption: 'x64'
+      publishJUnitResults: true
+      testResultsFiles: '**/surefire-reports/TEST-*.xml'
+      codeCoverageToolOption: 'jaCoCo'
+      checkStyleRunAnalysis: true
+      pmdRunAnalysis: true
+      findBugsRunAnalysis: true
+      goals: 'clean package'
+
+  - task: PublishCodeCoverageResults@1
+    condition: or(eq(variables['Build.SourceBranchName'], 'develop'), eq(variables['Build.SourceBranchName'], 'qa'), eq(variables['Build.SourceBranchName'], 'master'), and(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'), not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))), eq(variables['Build.SourceBranchName'], 'merge'), eq(variables['Build.SourceBranchName'], 'integration'), eq(variables['Build.SourceBranchName'], 'staging'))
+    inputs:
+      codeCoverageTool: 'JaCoCo'
+      summaryFileLocation: '$(system.defaultworkingdirectory)/**/jacoco.xml'
+      reportDirectory: '$(system.defaultworkingdirectory)/**/jacoco-ut/'
+
+  - task: CopyFiles@2
+    displayName: Copy artifacts to stage location for develop/integration/staging/master branches
+    condition: not(or(and(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'), not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/code'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))), eq(variables['Build.SourceBranchName'], 'merge')))
+    inputs:
+      SourceFolder: '$(system.defaultworkingdirectory)'
+      Contents: '**'
+      TargetFolder: '$(Build.ArtifactStagingDirectory)'
+      OverWrite: true
+
+  - task: PublishBuildArtifacts@1
+    displayName: Publish artifacts from develop/integration/staging/master branches
+    condition: not(or(and(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'), not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/code'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))), eq(variables['Build.SourceBranchName'], 'merge')))
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)'

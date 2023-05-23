@@ -1,80 +1,31 @@
-trigger:
-  - main
-  - feature/*
-  - develop
-  - integration
-  - staging
-  - master
-  - hotfix/*
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
 
-pr:
-  branches:
-    include:
-      - main
-      - master
-      - staging
-      - integration
-      - develop
+trigger:
+- main
 
 pool:
-  vmImage: 'windows-2022'
-
-variables:
-  MAVEN_CACHE_FOLDER: $(Pipeline.Workspace)/.m2/repository
-  MAVEN_OPTS: '-Dmaven.repo.local=$(MAVEN_CACHE_FOLDER) -Xmx3072m'
+  vmImage: ubuntu-latest
 
 steps:
-  - script: npm i -g azure-functions-core-tools@3 --unsafe-perm true
-  - task: MavenAuthenticate@0
-    condition: not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))
-    displayName: 'Maven Authenticate'
-    inputs:
-      artifactsFeeds: Pim-Artifacts-Feed
-
-  - task: Cache@2
-    condition: not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))
-    inputs:
-      key: 'maven | "$(Agent.OS)" | **/pom.xml'
-      restoreKeys: |
-        maven | "$(Agent.OS)"
-        maven
-      path: $(MAVEN_CACHE_FOLDER)
-    displayName: Cache Maven local repo
-
-  - task: Maven@3
-    condition: not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))
-    inputs:
-      mavenPomFile: 'pom.xml'
-      mavenOptions: '$(MAVEN_OPTS)'
-      javaHomeOption: 'JDKVersion'
-      jdkVersionOption: '1.8'
-      jdkArchitectureOption: 'x64'
-      publishJUnitResults: true
-      testResultsFiles: '**/surefire-reports/TEST-*.xml'
-      codeCoverageToolOption: 'jaCoCo'
-      checkStyleRunAnalysis: true
-      pmdRunAnalysis: true
-      findBugsRunAnalysis: true
-      goals: 'clean package'
-
-  - task: PublishCodeCoverageResults@1
-    condition: or(eq(variables['Build.SourceBranchName'], 'develop'), eq(variables['Build.SourceBranchName'], 'qa'), eq(variables['Build.SourceBranchName'], 'master'), and(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'), not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))), eq(variables['Build.SourceBranchName'], 'merge'), eq(variables['Build.SourceBranchName'], 'integration'), eq(variables['Build.SourceBranchName'], 'staging'))
-    inputs:
-      codeCoverageTool: 'JaCoCo'
-      summaryFileLocation: '$(system.defaultworkingdirectory)/**/jacoco.xml'
-      reportDirectory: '$(system.defaultworkingdirectory)/**/jacoco-ut/'
-
-  - task: CopyFiles@2
-    displayName: Copy artifacts to stage location for develop/integration/staging/master branches
-    condition: not(or(and(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'), not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/code'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))), eq(variables['Build.SourceBranchName'], 'merge')))
-    inputs:
-      SourceFolder: '$(system.defaultworkingdirectory)'
-      Contents: '**'
-      TargetFolder: '$(Build.ArtifactStagingDirectory)'
-      OverWrite: true
-
-  - task: PublishBuildArtifacts@1
-    displayName: Publish artifacts from develop/integration/staging/master branches
-    condition: not(or(and(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'), not(or(startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/infra'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/code'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/addon')))), eq(variables['Build.SourceBranchName'], 'merge')))
-    inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+- task: Maven@3
+  inputs:
+    mavenPomFile: 'pom.xml'
+    mavenOptions: '-Xmx3072m'
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.8'
+    jdkArchitectureOption: 'x64'
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+    goals: 'package'
+- task: CopyFiles@2
+  inputs:
+    Contents: '**/*.jar'
+    TargetFolder: '$(build.artifactstagingdirectory)'
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'warfile'
+    publishLocation: 'Container'
